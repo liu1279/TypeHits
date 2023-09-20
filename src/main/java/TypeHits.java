@@ -12,6 +12,7 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.util.Query;
 import com.jetbrains.python.inspections.PyInspection;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
 
 import static com.jetbrains.python.PyElementTypes.*;
@@ -25,41 +26,26 @@ public class TypeHits extends PyInspection {
             @Override
             public void visitPyElement(@NotNull PyElement element) {
                 ASTNode node = element.getNode().getFirstChildNode();
-
-                boolean isIdentifier = isTypeAs(node, TreeType.IDENTIFIER);
+                boolean isIdentifier = node != null && node.getElementType().toString().equals("Py:IDENTIFIER");
                 String targetFlag = isIdentifier ? "  【目标】->" + node.getText() : "";
                 if (isIdentifier) {
-                    ASTNode treeParent = node.getTreeParent();
-                    if (isTypeAs(treeParent, TreeType.TARGET_EXPRESSION)) {
-                        ASTNode treeNext = treeParent.getTreeNext();
-                        while (isTypeAs(treeNext, TreeType.PSI_WHITE_SPACE)) {
-                            treeNext = treeNext.getTreeNext();
+                    if (element instanceof PyTargetExpression) {
+                        if (((PyTargetExpression) element).getAnnotationValue() == null) {
+                            holder.registerProblem(element, "No type declare of variable" + node.getText(), myQuickFix);
                         }
-                        if (!isTypeAs(treeNext, TreeType.ANNOTATION)) {
-                            holder.registerProblem(node.getPsi(), "No type declare", myQuickFix);
-                        }
-                    } else if (isTypeAs(treeParent, TreeType.NAMED_PARAMETER)) {
-                        ASTNode treeNext = node.getTreeNext();
-                        while (isTypeAs(treeNext, TreeType.PSI_WHITE_SPACE)) {
-                            treeNext = treeNext.getTreeNext();
-                        }
-                        if (!isTypeAs(treeNext, TreeType.ANNOTATION)) {
-                            holder.registerProblem(node.getPsi(), "No type declare", myQuickFix);
+                    } else if (element instanceof PyNamedParameter) {
+                        if (((PyNamedParameter) element).getAnnotationValue() == null) {
+                            holder.registerProblem(element, "No type declare", myQuickFix);
                         }
 
-                    } else if (isTypeAs(treeParent, TreeType.FUNCTION_DECLARATION)) {
-                        ASTNode treeNext = node.getTreeNext();
-//                        Query<PsiReference> search1 = ReferencesSearch.search(node.getPsi());
-                        Query<PsiReference> search = ReferencesSearch.search(treeParent.getPsi());
+                    } else if (element instanceof PyFunction) {
+                        Query<PsiReference> search = ReferencesSearch.search(element);
                         for (PsiReference psiReference : search) {
                             System.out.println(psiReference);
                         }
                         System.out.println(search);
-                        while (isTypeAs(treeNext, TreeType.PSI_WHITE_SPACE) || isTypeAs(treeNext, TreeType.PARAMETER_LIST)) {
-                            treeNext = treeNext.getTreeNext();
-                        }
-                        if (!isTypeAs(treeNext, TreeType.ANNOTATION)) {
-                            holder.registerProblem(node.getPsi(), "No type declare", myQuickFix);
+                        if (((PyFunction) element).getAnnotationValue() == null) {
+                            holder.registerProblem(element, "No type declare", myQuickFix);
                         }
                     }
                 }
@@ -69,16 +55,13 @@ public class TypeHits extends PyInspection {
 
     }
 
-    private boolean isTypeAs(ASTNode treeNext, String targetTreeType) {
-        return treeNext != null && treeNext.getElementType().toString().equals(targetTreeType);
-    }
-
     private static class TypeFix implements LocalQuickFix {
-
+        PyElementGenerator pyElementGenerator = null;
+        TypeEvalContext typeEvalContext = null;
         @NotNull
         @Override
         public String getName() {
-            return InspectionBundle.message("inspection.comparing.string.references.use.quickfix");
+            return InspectionBundle.message("inspection.checking.type.declare.use.quickfix");
         }
 
 
@@ -90,17 +73,23 @@ public class TypeHits extends PyInspection {
 
         @Override
         public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
-            PsiElement psiElement = descriptor.getPsiElement().getParent();
+            pyElementGenerator = PyElementGenerator.getInstance(project);
+            typeEvalContext = TypeEvalContext.userInitiated(project, descriptor.getPsiElement().getContainingFile());
+            applyFixElement(descriptor.getPsiElement(), pyElementGenerator);
+        }
+
+        private void applyFixElement(PsiElement psiElement, PyElementGenerator pyElementGenerator) {
             if (psiElement instanceof PyTargetExpression) {
-                PyElementGenerator pyElementGenerator = PyElementGenerator.getInstance(project);
                 String oldParentText = psiElement.getParent().getText();
                 String targetText = psiElement.getText();
                 StringBuilder annotationBuilder = new StringBuilder(":");
                 if (!inferAnnotation(psiElement.getParent().getChildren()[1], annotationBuilder)){
                     return;
                 }
-                String newParentText = oldParentText.substring(0, targetText.length()) + annotationBuilder.toString() + oldParentText.substring(targetText.length());
-                PyAssignmentStatement newPyAssignmentStatement = pyElementGenerator.createFromText(LanguageLevel.forElement(psiElement), PyAssignmentStatement.class, newParentText);
+                String newParentText = oldParentText.substring(0, targetText.length())
+                        + annotationBuilder + oldParentText.substring(targetText.length());
+                PyAssignmentStatement newPyAssignmentStatement = pyElementGenerator.createFromText(LanguageLevel.forElement(psiElement),
+                        PyAssignmentStatement.class, newParentText);
                 psiElement.getParent().replace(newPyAssignmentStatement);
             } else if (psiElement instanceof PyNamedParameter) {
 
@@ -109,19 +98,11 @@ public class TypeHits extends PyInspection {
             }
         }
 
-        /*
-        PyElementType INTEGER_LITERAL_EXPRESSION = new PyElementType("INTEGER_LITERAL_EXPRESSION", node -> new PyNumericLiteralExpressionImpl(node));
-          PyElementType FLOAT_LITERAL_EXPRESSION = new PyElementType("FLOAT_LITERAL_EXPRESSION", node -> new PyNumericLiteralExpressionImpl(node));
-          PyElementType IMAGINARY_LITERAL_EXPRESSION = new PyElementType("IMAGINARY_LITERAL_EXPRESSION", node -> new PyNumericLiteralExpressionImpl(node));
-          PyElementType STRING_LITERAL_EXPRESSION = new PyElementType("STRING_LITERAL_EXPRESSION", node -> new PyStringLiteralExpressionImpl(node));
-          PyElementType NONE_LITERAL_EXPRESSION = new PyElementType("NONE_LITERAL_EXPRESSION", node -> new PyNoneLiteralExpressionImpl(node));
-          PyElementType BOOL_LITERAL_EXPRESSION = new PyElementType("BOOL_LITERAL_EXPRESSION", node -> new PyBoolLiteralExpressionImpl(node));
 
-          PyElementType LIST_LITERAL_EXPRESSION = new PyElementType("LIST_LITERAL_EXPRESSION", node -> new PyListLiteralExpressionImpl(node));
-          PyElementType DICT_LITERAL_EXPRESSION = new PyElementType("DICT_LITERAL_EXPRESSION", node -> new PyDictLiteralExpressionImpl(node));
-          PyElementType SET_LITERAL_EXPRESSION = new PyElementType("SET_LITERAL_EXPRESSION", node -> new PySetLiteralExpressionImpl(node));
-         */
         private boolean inferAnnotation(PsiElement element, StringBuilder stringBuilder) {
+            if (element == null) {
+                return false;
+            }
             IElementType elementType = element.getNode().getElementType();
             if (elementType.equals(INTEGER_LITERAL_EXPRESSION)) {
                 stringBuilder.append("int");
@@ -135,30 +116,38 @@ public class TypeHits extends PyInspection {
                 stringBuilder.append("None");
             } else if (elementType.equals(BOOL_LITERAL_EXPRESSION)) {
                 stringBuilder.append("bool");
-            } else if (elementType.equals(DICT_LITERAL_EXPRESSION)) {
+            } else if (element instanceof PyDictLiteralExpression) {
+                PyKeyValueExpression firstKeyValue = ((PyDictLiteralExpression) element).getElements()[0];
                 stringBuilder.append("dict[");
-                if (!inferAnnotation(element.getChildren()[0].getChildren()[0], stringBuilder)) {
+                if (!inferAnnotation(firstKeyValue.getKey(), stringBuilder)) {
                     return false;
                 }
                 stringBuilder.append(":");
-                if (!inferAnnotation(element.getChildren()[0].getChildren()[1], stringBuilder)) {
+                if (!inferAnnotation(firstKeyValue.getValue(), stringBuilder)) {
                     return false;
                 }
                 stringBuilder.append("]");
-            } else if (elementType.equals(LIST_LITERAL_EXPRESSION)) {
+            } else if (element instanceof PyListLiteralExpression) {
                 stringBuilder.append("list[");
-                if (!inferAnnotation(element.getChildren()[0], stringBuilder)) {
+                if (!inferAnnotation(((PyListLiteralExpression) element).getElements()[0], stringBuilder)) {
                     return false;
                 }
                 stringBuilder.append("]");
-            } else if (elementType.equals(SET_LITERAL_EXPRESSION)) {
+            } else if (element instanceof PySetLiteralExpression) {
                 stringBuilder.append("set[");
-                if (!inferAnnotation(element.getChildren()[0], stringBuilder)) {
+                if (!inferAnnotation(((PySetLiteralExpression) element).getElements()[0], stringBuilder)) {
                     return false;
                 }
                 stringBuilder.append("]");
             } else if (elementType.equals(REFERENCE_EXPRESSION)) {
-                return inferReference(element, stringBuilder);
+                return inferReferenceAnnotation(element, stringBuilder);
+            } else if (element instanceof PyCallExpression){
+                PsiElement resolve = ((PyCallExpression) element).getCallee().getReference().resolve();
+                if (resolve instanceof PyClass){
+                    stringBuilder.append(((PyClass)resolve).getName());
+                } else if (resolve instanceof PyFunction) {
+                    stringBuilder.append(((PyFunction)resolve).getReturnStatementType(typeEvalContext).getName());
+                }
             } else {
                 return false;
             }
@@ -166,24 +155,16 @@ public class TypeHits extends PyInspection {
             return true;
         }
 
-        private boolean inferReference(PsiElement element, StringBuilder stringBuilder) {
-            PsiReference reference = element.getReference();
-            if (reference == null) {
+        private boolean inferReferenceAnnotation(PsiElement element, StringBuilder stringBuilder) {
+            PyTargetExpression resolve = (PyTargetExpression) element.getReference().resolve();
+            if (resolve.getAnnotationValue() == null) {
+                applyFixElement(resolve, pyElementGenerator);
+            }
+            resolve = (PyTargetExpression) element.getReference().resolve();
+            if (resolve.getAnnotationValue() == null) {
                 return false;
             }
-            PsiElement resolve = reference.resolve();
-            if (resolve == null) {
-                return false;
-            }
-            PsiElement parent = resolve.getParent();
-            if (parent == null) {
-                return false;
-            }
-            PsiElement[] children = parent.getChildren();
-            if (children.length < 2) {
-                return false;
-            }
-            stringBuilder.append(children[1].getText().substring(1));
+            stringBuilder.append(resolve.getAnnotationValue());
             return true;
         }
     }

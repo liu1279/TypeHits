@@ -29,7 +29,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <localInspection language="Python"
                          bundle="messages.InspectionBundle"
-                         key="inspection.comparing.string.references.display.name"
+                         key="inspection.checking.type.declare.display.name"
                          groupPath="Java"
                          groupBundle="messages.InspectionsBundle"
                          groupKey="group.names.probable.bugs"
