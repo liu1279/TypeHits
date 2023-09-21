@@ -12,6 +12,8 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.util.Query;
 import com.jetbrains.python.inspections.PyInspection;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyFunctionImpl;
+import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
 
@@ -28,28 +30,29 @@ public class TypeHits extends PyInspection {
                 ASTNode node = element.getNode().getFirstChildNode();
                 boolean isIdentifier = node != null && node.getElementType().toString().equals("Py:IDENTIFIER");
                 String targetFlag = isIdentifier ? "  【目标】->" + node.getText() : "";
-                if (isIdentifier) {
-                    if (element instanceof PyTargetExpression) {
-                        if (((PyTargetExpression) element).getAnnotationValue() == null) {
-                            holder.registerProblem(element, "No type declare of variable" + node.getText(), myQuickFix);
-                        }
-                    } else if (element instanceof PyNamedParameter) {
-                        if (((PyNamedParameter) element).getAnnotationValue() == null) {
-                            holder.registerProblem(element, "No type declare", myQuickFix);
-                        }
+//                if (isIdentifier) {
+                if (element instanceof PyTargetExpression) {
+                    if (((PyTargetExpression) element).getAnnotationValue() == null) {
+                        holder.registerProblem(element, "No type declare of variable " + node.getText(), myQuickFix);
+                    }
+                } else if (element instanceof PyNamedParameter) {
+                    if (((PyNamedParameter) element).getAnnotationValue() == null) {
+                        holder.registerProblem(element, "No type declare", myQuickFix);
+                    }
 
-                    } else if (element instanceof PyFunction) {
-                        Query<PsiReference> search = ReferencesSearch.search(element);
-                        for (PsiReference psiReference : search) {
-                            System.out.println(psiReference);
-                        }
-                        System.out.println(search);
-                        if (((PyFunction) element).getAnnotationValue() == null) {
-                            holder.registerProblem(element, "No type declare", myQuickFix);
-                        }
+                } else if (element instanceof PyFunction) {
+                    Query<PsiReference> search = ReferencesSearch.search(element);
+                    for (PsiReference psiReference : search) {
+                        System.out.println(psiReference);
+                    }
+                    System.out.println(search);
+                    if (((PyFunction) element).getAnnotationValue() == null) {
+                        holder.registerProblem(((PyFunction) element).getNameNode().getPsi(),
+                                "No returnType declare of function " + node.getText(), myQuickFix);
                     }
                 }
-                System.out.println(node + targetFlag);
+//                }
+                System.out.println(element + targetFlag);
             }
         };
 
@@ -58,6 +61,7 @@ public class TypeHits extends PyInspection {
     private static class TypeFix implements LocalQuickFix {
         PyElementGenerator pyElementGenerator = null;
         TypeEvalContext typeEvalContext = null;
+
         @NotNull
         @Override
         public String getName() {
@@ -83,7 +87,7 @@ public class TypeHits extends PyInspection {
                 String oldParentText = psiElement.getParent().getText();
                 String targetText = psiElement.getText();
                 StringBuilder annotationBuilder = new StringBuilder(":");
-                if (!inferAnnotation(psiElement.getParent().getChildren()[1], annotationBuilder)){
+                if (!inferAnnotation(psiElement.getParent().getChildren()[1], annotationBuilder)) {
                     return;
                 }
                 String newParentText = oldParentText.substring(0, targetText.length())
@@ -94,7 +98,19 @@ public class TypeHits extends PyInspection {
             } else if (psiElement instanceof PyNamedParameter) {
 
             } else if (psiElement instanceof PyFunction) {
-
+                PyType returnStatementType = ((PyFunction) psiElement).getReturnStatementType(typeEvalContext);
+                String oldFunctionText = psiElement.getText();
+                int index = oldFunctionText.lastIndexOf(":");
+                String newFunctionText = oldFunctionText.substring(0, index) + "->" + returnStatementType.getName()
+                        + oldFunctionText.substring(index);
+                PyNamedParameter[] parameters = (PyNamedParameter[])((PyFunction) psiElement).getParameterList().getParameters();
+                PsiReference psiReference = ReferencesSearch.search(psiElement).findFirst();
+                if (psiReference != null) {
+                    psiReference.getElement();
+                }
+                PyFunctionImpl newFunction = pyElementGenerator.createFromText(LanguageLevel.forElement(psiElement),
+                        PyFunctionImpl.class, newFunctionText);
+                psiElement.replace(newFunction);
             }
         }
 
@@ -141,12 +157,12 @@ public class TypeHits extends PyInspection {
                 stringBuilder.append("]");
             } else if (elementType.equals(REFERENCE_EXPRESSION)) {
                 return inferReferenceAnnotation(element, stringBuilder);
-            } else if (element instanceof PyCallExpression){
+            } else if (element instanceof PyCallExpression) {
                 PsiElement resolve = ((PyCallExpression) element).getCallee().getReference().resolve();
-                if (resolve instanceof PyClass){
-                    stringBuilder.append(((PyClass)resolve).getName());
+                if (resolve instanceof PyClass) {
+                    stringBuilder.append(((PyClass) resolve).getName());
                 } else if (resolve instanceof PyFunction) {
-                    stringBuilder.append(((PyFunction)resolve).getReturnStatementType(typeEvalContext).getName());
+                    stringBuilder.append(((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName());
                 }
             } else {
                 return false;
