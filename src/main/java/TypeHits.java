@@ -9,7 +9,6 @@ import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.Query;
 import com.jetbrains.python.inspections.PyInspection;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyFunctionImpl;
@@ -30,28 +29,23 @@ public class TypeHits extends PyInspection {
                 ASTNode node = element.getNode().getFirstChildNode();
                 boolean isIdentifier = node != null && node.getElementType().toString().equals("Py:IDENTIFIER");
                 String targetFlag = isIdentifier ? "  【目标】->" + node.getText() : "";
-//                if (isIdentifier) {
                 if (element instanceof PyTargetExpression) {
                     if (((PyTargetExpression) element).getAnnotationValue() == null) {
-                        holder.registerProblem(element, "No type declare of variable " + node.getText(), myQuickFix);
+                        holder.registerProblem(element, "No type declare of variable " + element.getText(), myQuickFix);
                     }
-                } else if (element instanceof PyNamedParameter) {
-                    if (((PyNamedParameter) element).getAnnotationValue() == null) {
-                        holder.registerProblem(element, "No type declare", myQuickFix);
+                } else if (element instanceof PyFunction pyFunction) {
+                    boolean isNeedFix = pyFunction.getAnnotation() == null;
+                    for (PyParameter parameter : pyFunction.getParameterList().getParameters()) {
+                        if (((PyNamedParameter)parameter).getAnnotation() == null) {
+                            isNeedFix = true;
+                            break;
+                        }
                     }
-
-                } else if (element instanceof PyFunction) {
-                    Query<PsiReference> search = ReferencesSearch.search(element);
-                    for (PsiReference psiReference : search) {
-                        System.out.println(psiReference);
-                    }
-                    System.out.println(search);
-                    if (((PyFunction) element).getAnnotationValue() == null) {
-                        holder.registerProblem(((PyFunction) element).getNameNode().getPsi(),
-                                "No returnType declare of function " + node.getText(), myQuickFix);
+                    if (isNeedFix) {
+                        holder.registerProblem(pyFunction.getNameNode().getPsi(),
+                                "lose some type declare of function " + pyFunction.getName(), myQuickFix);
                     }
                 }
-//                }
                 System.out.println(element + targetFlag);
             }
         };
@@ -95,22 +89,37 @@ public class TypeHits extends PyInspection {
                 PyAssignmentStatement newPyAssignmentStatement = pyElementGenerator.createFromText(LanguageLevel.forElement(psiElement),
                         PyAssignmentStatement.class, newParentText);
                 psiElement.getParent().replace(newPyAssignmentStatement);
-            } else if (psiElement instanceof PyNamedParameter) {
+            } else if (psiElement.getParent() instanceof PyFunction) {
+                PsiElement function = psiElement.getParent();
 
-            } else if (psiElement instanceof PyFunction) {
-                PyType returnStatementType = ((PyFunction) psiElement).getReturnStatementType(typeEvalContext);
-                String oldFunctionText = psiElement.getText();
-                int index = oldFunctionText.lastIndexOf(":");
-                String newFunctionText = oldFunctionText.substring(0, index) + "->" + returnStatementType.getName()
-                        + oldFunctionText.substring(index);
-                PyNamedParameter[] parameters = (PyNamedParameter[])((PyFunction) psiElement).getParameterList().getParameters();
-                PsiReference psiReference = ReferencesSearch.search(psiElement).findFirst();
+                String functionText = function.getText();
+                int[] bufferIndex = {0};
+                bufferIndex[0] = functionText.indexOf("(");
+
+                PyParameter[] parameters = ((PyFunction) function).getParameterList().getParameters();
+                PsiReference psiReference = ReferencesSearch.search(function).findFirst();
                 if (psiReference != null) {
-                    psiReference.getElement();
+                    PyCallExpression pyCallExpression = (PyCallExpression) (psiReference.getElement().getParent());
+                    PyExpression[] referenceArguments = pyCallExpression.getArgumentList().getArguments();
+                    for (int i = 0; i < referenceArguments.length; i++) {
+                        StringBuilder annotationBuilder = new StringBuilder(":");
+                        if (inferAnnotation(referenceArguments[i], annotationBuilder)) {
+                            if (((PyNamedParameter)parameters[i]).getAnnotation() != null) {
+                                bufferIndex[0] += parameters[i].getText().length();
+                                continue;
+                            }
+                            functionText = Until.getInsertedString(functionText, parameters[i].getText(),
+                                    annotationBuilder.toString(), bufferIndex);
+                        }
+                    }
+                }
+                PyType returnStatementType = ((PyFunction) function).getReturnStatementType(typeEvalContext);
+                if (((PyFunction) function).getAnnotation() == null) {
+                    functionText = Until.getInsertedString(functionText, ")", "->" + returnStatementType.getName(), bufferIndex);
                 }
                 PyFunctionImpl newFunction = pyElementGenerator.createFromText(LanguageLevel.forElement(psiElement),
-                        PyFunctionImpl.class, newFunctionText);
-                psiElement.replace(newFunction);
+                        PyFunctionImpl.class, functionText);
+                function.replace(newFunction);
             }
         }
 
