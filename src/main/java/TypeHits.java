@@ -184,7 +184,7 @@ public class TypeHits extends PyInspection {
             }
             resolve = (PyTargetExpression) element.getReference().resolve();
             if (resolve.getAnnotationValue() == null) {
-                return false;
+                throw new Exception("infer reference type fail");
             }
             stringBuilder.append(resolve.getAnnotationValue());
             return true;
