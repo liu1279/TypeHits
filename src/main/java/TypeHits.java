@@ -187,13 +187,12 @@ public class TypeHits extends PyInspection {
                     stringBuilder.append(((PyClass) resolve).getName());
                 } else if (resolve instanceof PyFunction) {
                     PyTargetExpression node = (PyTargetExpression) element.getParent().getChildren()[0];
-                    PyExpression assignedValue = node.findAssignedValue();
-                    PyType type = typeEvalContext.getType(node);
-                    PyType inferType = tryPromotingType(assignedValue, type, typeEvalContext);
+                    PyType inferType = tryPromotingType(node.findAssignedValue(), typeEvalContext.getType(node), typeEvalContext);
                     if (inferType == null) {
-                        Until.throwErrorWithPosition(resolve, "infer returnType error");
+                        stringBuilder.append(((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName());
+                    }else {
+                        stringBuilder.append(inferType.getName());
                     }
-                    stringBuilder.append(inferType.getName());
                 }
             } else if (element instanceof PyBinaryExpression pyBinaryExpression) {
                 inferAnnotation(pyBinaryExpression.getChildren()[0], stringBuilder);
