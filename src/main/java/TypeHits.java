@@ -55,6 +55,7 @@ public class TypeHits extends PyInspection {
     private static class TypeFix implements LocalQuickFix {
         PyElementGenerator pyElementGenerator = null;
         TypeEvalContext typeEvalContext = null;
+        Project project = null;
 
         @NotNull
         @Override
@@ -73,6 +74,7 @@ public class TypeHits extends PyInspection {
         public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
             pyElementGenerator = PyElementGenerator.getInstance(project);
             typeEvalContext = TypeEvalContext.userInitiated(project, descriptor.getPsiElement().getContainingFile());
+            this.project = project;
             try {
                 applyFixElement(descriptor.getPsiElement(), pyElementGenerator);
             } catch (Exception e) {
@@ -135,13 +137,7 @@ public class TypeHits extends PyInspection {
             if (element == null) {
                 throw new Exception("PsiElement is null");
             }
-            if (element instanceof PyTypedElement pyTypedElement) {
-                PyType cacheType = typeEvalContext.getType(pyTypedElement);
-                if (cacheType != null) {
-                    stringBuilder.append(cacheType.getName());
-                    return true;
-                }
-            }
+
             IElementType elementType = element.getNode().getElementType();
             if (elementType.equals(INTEGER_LITERAL_EXPRESSION)) {
                 stringBuilder.append("int");
@@ -177,7 +173,11 @@ public class TypeHits extends PyInspection {
                 if (resolve instanceof PyClass) {
                     stringBuilder.append(((PyClass) resolve).getName());
                 } else if (resolve instanceof PyFunction) {
-                    stringBuilder.append(((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName());
+                    String anntationStr = ((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName();
+                    if (resolve.getContainingFile().getName().contains("builtin")) {
+                        anntationStr = typeEvalContext.getType((PyTypedElement)element).getName();
+                    }
+                    stringBuilder.append(anntationStr);
                 }
             } else if (element instanceof PyBinaryExpression pyBinaryExpression) {
                 inferAnnotation(pyBinaryExpression.getChildren()[0], stringBuilder);
