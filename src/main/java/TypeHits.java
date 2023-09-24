@@ -29,11 +29,9 @@ public class TypeHits extends PyInspection {
         return new PyElementVisitor() {
             @Override
             public void visitPyElement(@NotNull PyElement element) {
-                ASTNode node = element.getNode().getFirstChildNode();
-                boolean isIdentifier = node != null && node.getElementType().toString().equals("Py:IDENTIFIER");
-                String targetFlag = isIdentifier ? "  【目标】->" + node.getText() : "";
                 if (element instanceof PyTargetExpression) {
-                    if (((PyTargetExpression) element).getAnnotationValue() == null) {
+                    if (((PyTargetExpression) element).getAnnotationValue() == null
+                            && !(element.getParent() instanceof PyForPart)) {
                         holder.registerProblem(element, "No type declare of variable " + element.getText(), myQuickFix);
                     }
                 } else if (element instanceof PyFunction pyFunction) {
@@ -49,7 +47,6 @@ public class TypeHits extends PyInspection {
                                 "lose some type declare of function " + pyFunction.getName(), myQuickFix);
                     }
                 }
-                System.out.println(element + targetFlag);
             }
         };
 
@@ -80,6 +77,7 @@ public class TypeHits extends PyInspection {
                 applyFixElement(descriptor.getPsiElement(), pyElementGenerator);
             } catch (Exception e) {
                 Messages.showErrorDialog(e.getMessage(), "infer type error");
+
                 System.out.println(e.getMessage());
             }
         }
@@ -97,52 +95,38 @@ public class TypeHits extends PyInspection {
                 PyAssignmentStatement newPyAssignmentStatement = pyElementGenerator.createFromText(LanguageLevel.forElement(psiElement),
                         PyAssignmentStatement.class, newParentText);
                 psiElement.getParent().replace(newPyAssignmentStatement);
-            } else if (psiElement.getParent() instanceof PyFunction
-                    || psiElement instanceof PyNamedParameter) {
-
-                PsiElement function = psiElement.getParent();
-                if (psiElement instanceof PyNamedParameter) {
-                    function = psiElement.getParent().getParent();
+            } else if (psiElement.getParent() instanceof PyFunction || psiElement instanceof PyNamedParameter) {
+                PyFunction function;
+                if (psiElement.getParent() instanceof PyFunction) {
+                    function = (PyFunction) psiElement.getParent();
+                } else {
+                    function = (PyFunction) psiElement.getParent().getParent();
                 }
 
-                String functionText = function.getText();
-                int[] bufferIndex = {0};
-                bufferIndex[0] = functionText.indexOf("(");
-
-                PyParameter[] parameters = ((PyFunction) function).getParameterList().getParameters();
+                PyParameter[] parameters = function.getParameterList().getParameters();
                 PsiReference psiReference = ReferencesSearch.search(function).findFirst();
                 if (psiReference != null) {
                     PyCallExpression pyCallExpression = (PyCallExpression) (psiReference.getElement().getParent());
                     PyExpression[] referenceArguments = pyCallExpression.getArgumentList().getArguments();
                     for (int i = 0; i < referenceArguments.length; i++) {
-                        StringBuilder annotationBuilder = new StringBuilder(":");
+                        StringBuilder annotationBuilder = new StringBuilder();
                         inferAnnotation(referenceArguments[i], annotationBuilder);
-                        if (((PyNamedParameter) parameters[i]).getAnnotation() != null) {
-                            bufferIndex[0] += parameters[i].getText().length();
-                            continue;
+                        if (((PyNamedParameter) parameters[i]).getAnnotation() == null) {
+                            PyFunction templateFunction = pyElementGenerator.createFromText(
+                                    LanguageLevel.forElement(psiElement), PyFunction.class,
+                                    "def a(b:"+annotationBuilder+"):\n	pass");
+                            parameters[i].add(((PyNamedParameter)templateFunction.getParameterList().getParameters()[0]).getAnnotation());
                         }
-                        functionText = Until.getInsertedString(functionText, parameters[i].getText(),
-                                annotationBuilder.toString(), bufferIndex);
-
                     }
                 }
-                PyType returnStatementType = ((PyFunction) function).getReturnStatementType(typeEvalContext);
-                if (((PyFunction) function).getAnnotation() == null) {
-                    functionText = Until.getInsertedString(functionText, ")", "->" + returnStatementType.getName(), bufferIndex);
+                if (function.getAnnotation() == null) {
+                    PyType returnStatementType = function.getReturnStatementType(typeEvalContext);
+                    PyFunction templateFunction = pyElementGenerator.createFromText(
+                            LanguageLevel.forElement(psiElement), PyFunction.class,
+                            "def a()->" + returnStatementType.getName() + ":\n	pass");
+                    function.addAfter(templateFunction.getAnnotation(), function.getParameterList());
                 }
 
-                PyFunctionImpl newFunction = pyElementGenerator.createFromText(LanguageLevel.forElement(psiElement),
-                        PyFunctionImpl.class, functionText);
-                PyParameter[] newParameters = newFunction.getParameterList().getParameters();
-                for (int i = 0; i < parameters.length; i++) {
-                    if (((PyNamedParameter) parameters[i]).getAnnotation() == null) {
-                        parameters[i].replace(newParameters[i]);
-                    }
-                }
-                if (((PyFunction) function).getAnnotation() == null) {
-                    ASTNode anchorNode = function.getNode().findChildByType(PyTokenTypes.COLON);
-                    function.getNode().addChild(newFunction.getAnnotation().getNode(), anchorNode);
-                }
             }
         }
 
@@ -150,6 +134,13 @@ public class TypeHits extends PyInspection {
         private boolean inferAnnotation(PsiElement element, StringBuilder stringBuilder) throws Exception {
             if (element == null) {
                 throw new Exception("PsiElement is null");
+            }
+            if (element instanceof PyTypedElement pyTypedElement) {
+                PyType cacheType = typeEvalContext.getType(pyTypedElement);
+                if (cacheType != null) {
+                    stringBuilder.append(cacheType.getName());
+                    return true;
+                }
             }
             IElementType elementType = element.getNode().getElementType();
             if (elementType.equals(INTEGER_LITERAL_EXPRESSION)) {
@@ -186,19 +177,17 @@ public class TypeHits extends PyInspection {
                 if (resolve instanceof PyClass) {
                     stringBuilder.append(((PyClass) resolve).getName());
                 } else if (resolve instanceof PyFunction) {
-                    PyTargetExpression node = (PyTargetExpression) element.getParent().getChildren()[0];
-                    PyType inferType = tryPromotingType(node.findAssignedValue(), typeEvalContext.getType(node), typeEvalContext);
-                    if (inferType == null) {
-                        stringBuilder.append(((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName());
-                    }else {
-                        stringBuilder.append(inferType.getName());
-                    }
+                    stringBuilder.append(((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName());
                 }
             } else if (element instanceof PyBinaryExpression pyBinaryExpression) {
                 inferAnnotation(pyBinaryExpression.getChildren()[0], stringBuilder);
             } else if (element instanceof PySubscriptionExpression pySubscriptionExpression) {
                 StringBuilder temp = new StringBuilder();
                 inferReferenceAnnotation(pySubscriptionExpression.getOperand(), temp);
+                if (!temp.toString().contains("[")) {
+                    Until.throwErrorWithPosition(pySubscriptionExpression.getOperand().getReference().resolve(),
+                            "no sub type");
+                }
                 stringBuilder.append(temp.substring(temp.indexOf("[") + 1, temp.lastIndexOf("]")));
             } else {
                 Until.throwErrorWithPosition(element, "unexcepted psiElementType");
@@ -207,6 +196,10 @@ public class TypeHits extends PyInspection {
         }
 
         private boolean inferReferenceAnnotation(PsiElement element, StringBuilder stringBuilder) throws Exception {
+            if (element.getReference().resolve().getParent() instanceof PyForPart) {
+                stringBuilder.append(typeEvalContext.getType((PyTypedElement) element).getName());
+                return true;
+            }
             if (Until.getAnnotationValue(element) == null) {
                 applyFixElement(element.getReference().resolve(), pyElementGenerator);
             }
