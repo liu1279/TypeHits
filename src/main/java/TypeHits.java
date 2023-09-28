@@ -2,7 +2,6 @@ import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.util.IntentionFamilyName;
-import com.intellij.lang.ASTNode;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.PsiElement;
@@ -14,9 +13,12 @@ import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.inspections.PyInspection;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyFunctionImpl;
+import com.jetbrains.python.psi.impl.PyTargetExpressionImpl;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.Objects;
 
 import static com.jetbrains.python.PyElementTypes.*;
 import static com.jetbrains.python.inspections.PyTypeCheckerInspection.Visitor.tryPromotingType;
@@ -31,13 +33,14 @@ public class TypeHits extends PyInspection {
             public void visitPyElement(@NotNull PyElement element) {
                 if (element instanceof PyTargetExpression) {
                     if (((PyTargetExpression) element).getAnnotationValue() == null
-                            && !(element.getParent() instanceof PyForPart)) {
+                            && !(element.getParent() instanceof PyForPart)
+                            && ((PyTargetExpressionImpl) element).getReference().resolve() == element) {
                         holder.registerProblem(element, "No type declare of variable " + element.getText(), myQuickFix);
                     }
                 } else if (element instanceof PyFunction pyFunction) {
                     boolean isNeedFix = pyFunction.getAnnotation() == null;
                     for (PyParameter parameter : pyFunction.getParameterList().getParameters()) {
-                        if (((PyNamedParameter) parameter).getAnnotation() == null) {
+                        if (!parameter.getText().equals("self") && ((PyNamedParameter) parameter).getAnnotation() == null) {
                             isNeedFix = true;
                             break;
                         }
@@ -86,17 +89,27 @@ public class TypeHits extends PyInspection {
 
         private void applyFixElement(PsiElement psiElement, PyElementGenerator pyElementGenerator) throws Exception {
             if (psiElement instanceof PyTargetExpression) {
-                String oldParentText = psiElement.getParent().getText();
-                String targetText = psiElement.getText();
-                StringBuilder annotationBuilder = new StringBuilder(":");
-
-                inferAnnotation(psiElement.getParent().getChildren()[1], annotationBuilder);
-
-                String newParentText = oldParentText.substring(0, targetText.length())
-                        + annotationBuilder + oldParentText.substring(targetText.length());
-                PyAssignmentStatement newPyAssignmentStatement = pyElementGenerator.createFromText(LanguageLevel.forElement(psiElement),
-                        PyAssignmentStatement.class, newParentText);
-                psiElement.getParent().replace(newPyAssignmentStatement);
+                if (psiElement.getParent() instanceof PyTupleExpression) {
+                    PyAssignmentStatement assignmentStatement = (PyAssignmentStatement) psiElement.getParent().getParent();
+                    PsiElement[] assignValues = assignmentStatement.getAssignedValue().getChildren();
+                    PyExpression[] targets = assignmentStatement.getTargets();
+                    for (int i = 0; i < targets.length; i++) {
+                        StringBuilder builder = new StringBuilder();
+                        inferAnnotation(assignValues[i], builder);
+                        PyTypeDeclarationStatement templateDeclaration = pyElementGenerator.createFromText(
+                                LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
+                                targets[i].getName() + ":" + builder);
+                        assignmentStatement.getParent().addBefore(templateDeclaration, assignmentStatement);
+                    }
+                    return;
+                }
+                StringBuilder annotationBuilder = new StringBuilder();
+                inferAnnotation(((PyAssignmentStatement) psiElement.getParent()).getAssignedValue(), annotationBuilder);
+                PyTypeDeclarationStatement templateDeclaration = pyElementGenerator.createFromText(
+                        LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
+                        "a:" + annotationBuilder);
+                psiElement.add(templateDeclaration.getAnnotation());
+                refreshAssignment(psiElement);
             } else if (psiElement.getParent() instanceof PyFunction || psiElement instanceof PyNamedParameter) {
                 PyFunction function;
                 if (psiElement.getParent() instanceof PyFunction) {
@@ -110,14 +123,15 @@ public class TypeHits extends PyInspection {
                 if (psiReference != null) {
                     PyCallExpression pyCallExpression = (PyCallExpression) (psiReference.getElement().getParent());
                     PyExpression[] referenceArguments = pyCallExpression.getArgumentList().getArguments();
-                    for (int i = 0; i < referenceArguments.length; i++) {
+                    PyExpression[] orderedArguments = getOrderedReferenceArguments(parameters, referenceArguments);
+                    for (int i = 0; i < orderedArguments.length; i++) {
                         StringBuilder annotationBuilder = new StringBuilder();
-                        inferAnnotation(referenceArguments[i], annotationBuilder);
+                        inferAnnotation(orderedArguments[i], annotationBuilder);
                         if (((PyNamedParameter) parameters[i]).getAnnotation() == null) {
-                            PyFunction templateFunction = pyElementGenerator.createFromText(
-                                    LanguageLevel.forElement(psiElement), PyFunction.class,
-                                    "def a(b:"+annotationBuilder+"):\n	pass");
-                            parameters[i].add(((PyNamedParameter)templateFunction.getParameterList().getParameters()[0]).getAnnotation());
+                            PyTypeDeclarationStatement templateDeclaration = pyElementGenerator.createFromText(
+                                    LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
+                                    "a:" + annotationBuilder);
+                            parameters[i].add(templateDeclaration.getAnnotation());
                         }
                     }
                 }
@@ -132,12 +146,40 @@ public class TypeHits extends PyInspection {
             }
         }
 
+        private PyExpression[] getOrderedReferenceArguments(PyParameter[] parameters, PyExpression[] referenceArguments) {
+            if (referenceArguments.length == 0 || !(referenceArguments[0] instanceof PyKeywordArgument)) {
+                return referenceArguments;
+            }
+            PyExpression[] result = new PyExpression[referenceArguments.length];
+            for (int i = 0; i < result.length; i++) {
+                String targetName = parameters[i].getName();
+                int j = 0;
+                PyKeywordArgument target = (PyKeywordArgument)referenceArguments[j];
+                while (!Objects.equals(target.getKeyword(), targetName)) {
+                    j++;
+                    target=(PyKeywordArgument)referenceArguments[j];
+                }
+                result[i] = target.getValueExpression();
+            }
+            return result;
+        }
+
+        private void refreshAssignment(PsiElement psiElement) {
+            PsiElement temp = psiElement;
+            while (!(temp instanceof PyAssignmentStatement)) {
+                temp = temp.getParent();
+            }
+            PyAssignmentStatement newPyAssignmentStatement = pyElementGenerator.createFromText(
+                    LanguageLevel.forElement(temp), PyAssignmentStatement.class,
+                    temp.getText());
+            temp.replace(newPyAssignmentStatement);
+        }
+
 
         private boolean inferAnnotation(PsiElement element, StringBuilder stringBuilder) throws Exception {
             if (element == null) {
                 throw new Exception("PsiElement is null");
             }
-
             IElementType elementType = element.getNode().getElementType();
             if (elementType.equals(INTEGER_LITERAL_EXPRESSION)) {
                 stringBuilder.append("int");
@@ -152,19 +194,33 @@ public class TypeHits extends PyInspection {
             } else if (elementType.equals(BOOL_LITERAL_EXPRESSION)) {
                 stringBuilder.append("bool");
             } else if (element instanceof PyDictLiteralExpression) {
-                PyKeyValueExpression firstKeyValue = ((PyDictLiteralExpression) element).getElements()[0];
+                PyKeyValueExpression[] elements = ((PyDictLiteralExpression) element).getElements();
+                if (elements.length == 0) {
+                    stringBuilder.append("dict[None]");
+                    return true;
+                }
                 stringBuilder.append("dict[");
-                inferAnnotation(firstKeyValue.getKey(), stringBuilder);
+                inferAnnotation(elements[0].getKey(), stringBuilder);
                 stringBuilder.append(":");
-                inferAnnotation(firstKeyValue.getValue(), stringBuilder);
+                inferAnnotation(elements[0].getValue(), stringBuilder);
                 stringBuilder.append("]");
             } else if (element instanceof PyListLiteralExpression) {
+                PyExpression[] elements = ((PyListLiteralExpression) element).getElements();
+                if (elements.length == 0) {
+                    stringBuilder.append("list[None]");
+                    return true;
+                }
                 stringBuilder.append("list[");
-                inferAnnotation(((PyListLiteralExpression) element).getElements()[0], stringBuilder);
+                inferAnnotation(elements[0], stringBuilder);
                 stringBuilder.append("]");
             } else if (element instanceof PySetLiteralExpression) {
+                PyExpression[] elements = ((PySetLiteralExpression) element).getElements();
+                if (elements.length == 0) {
+                    stringBuilder.append("set[None]");
+                    return true;
+                }
                 stringBuilder.append("set[");
-                inferAnnotation(((PySetLiteralExpression) element).getElements()[0], stringBuilder);
+                inferAnnotation(elements[0], stringBuilder);
                 stringBuilder.append("]");
             } else if (elementType.equals(REFERENCE_EXPRESSION)) {
                 inferReferenceAnnotation(element, stringBuilder);
@@ -175,7 +231,7 @@ public class TypeHits extends PyInspection {
                 } else if (resolve instanceof PyFunction) {
                     String anntationStr = ((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName();
                     if (resolve.getContainingFile().getName().contains("builtin")) {
-                        anntationStr = typeEvalContext.getType((PyTypedElement)element).getName();
+                        anntationStr = typeEvalContext.getType((PyTypedElement) element).getName();
                     }
                     stringBuilder.append(anntationStr);
                 }
@@ -211,4 +267,5 @@ public class TypeHits extends PyInspection {
         }
     }
 }
+
 
