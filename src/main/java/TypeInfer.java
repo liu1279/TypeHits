@@ -1,9 +1,12 @@
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.tree.IElementType;
 import com.jetbrains.python.PyElementTypes;
+import com.jetbrains.python.codeInsight.intentions.PyTypeHintGenerationUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+
+import java.util.Collections;
 
 import static com.jetbrains.python.PyElementTypes.*;
 
@@ -23,6 +26,8 @@ public class TypeInfer {
         PyType jetbrainType = typeEvalContext.getType((PyTypedElement) element);
         if (jetbrainType != null && !Constants.untrustedType.contains(jetbrainType.getName())) {
             stringBuilder.append(jetbrainType.getName());
+            PyTypeHintGenerationUtil.addImportsForTypeAnnotations(
+                    Collections.singletonList(jetbrainType), typeEvalContext, element.getContainingFile());
             return true;
         }
         IElementType elementType = element.getNode().getElementType();
