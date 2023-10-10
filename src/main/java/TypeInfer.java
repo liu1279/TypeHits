@@ -23,13 +23,6 @@ public class TypeInfer {
         if (element == null) {
             throw new Exception("PsiElement is null");
         }
-        PyType jetbrainType = typeEvalContext.getType((PyTypedElement) element);
-        if (jetbrainType != null && !Constants.untrustedType.contains(jetbrainType.getName())) {
-            stringBuilder.append(jetbrainType.getName());
-            PyTypeHintGenerationUtil.addImportsForTypeAnnotations(
-                    Collections.singletonList(jetbrainType), typeEvalContext, element.getContainingFile());
-            return true;
-        }
         IElementType elementType = element.getNode().getElementType();
         if (elementType.equals(INTEGER_LITERAL_EXPRESSION)) {
             stringBuilder.append("int");

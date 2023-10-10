@@ -38,7 +38,7 @@ public class TypeFix implements LocalQuickFix {
         try {
             applyFixElement(descriptor.getPsiElement());
         } catch (Exception e) {
-            Messages.showErrorDialog(e.getMessage(), "infer type error");
+            Messages.showErrorDialog(e.getMessage(), "Infer Type Error");
 
             System.out.println(e.getMessage());
         }
@@ -94,9 +94,10 @@ public class TypeFix implements LocalQuickFix {
             }
             if (function.getAnnotation() == null) {
                 PyType returnStatementType = typeInfer.getFunctionReturnType(function);
+                String returnTypeName = returnStatementType == null ? "None" : returnStatementType.getName();
                 PyFunction templateFunction = pyElementGenerator.createFromText(
                         LanguageLevel.forElement(psiElement), PyFunction.class,
-                        "def a()->" + returnStatementType.getName() + ":\n	pass");
+                        "def a()->" + returnTypeName + ":\n	pass");
                 function.addAfter(templateFunction.getAnnotation(), function.getParameterList());
             }
 
