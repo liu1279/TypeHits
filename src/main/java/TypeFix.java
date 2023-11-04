@@ -6,11 +6,13 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.searches.ReferencesSearch;
+import com.jetbrains.python.codeInsight.intentions.PyTypeHintGenerationUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
 import java.util.Objects;
 
 public class TypeFix implements LocalQuickFix {
@@ -57,6 +59,7 @@ public class TypeFix implements LocalQuickFix {
                             LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
                             targets[i].getName() + ":" + builder);
                     assignmentStatement.getParent().addBefore(templateDeclaration, assignmentStatement);
+                    typeInfer.addImport(targets[i]);
                 }
                 return;
             }
@@ -67,6 +70,7 @@ public class TypeFix implements LocalQuickFix {
                     "a:" + annotationBuilder);
             psiElement.add(templateDeclaration.getAnnotation());
             refreshAssignment(psiElement);
+            typeInfer.addImport(psiElement);
         } else if (psiElement.getParent() instanceof PyFunction || psiElement instanceof PyNamedParameter) {
             PyFunction function;
             if (psiElement.getParent() instanceof PyFunction) {
@@ -89,6 +93,7 @@ public class TypeFix implements LocalQuickFix {
                                 LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
                                 "a:" + annotationBuilder);
                         parameters[i].add(templateDeclaration.getAnnotation());
+                        typeInfer.addImport(parameters[i]);
                     }
                 }
             }
@@ -103,6 +108,8 @@ public class TypeFix implements LocalQuickFix {
 
         }
     }
+
+
 
     private PyExpression[] getOrderedReferenceArguments(PyParameter[] parameters, PyExpression[] referenceArguments) {
         if (referenceArguments.length == 0 || !(referenceArguments[0] instanceof PyKeywordArgument)) {

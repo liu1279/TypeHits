@@ -116,4 +116,10 @@ public class TypeInfer {
     public PyType getFunctionReturnType(PyFunction function) {
         return function.getReturnStatementType(typeEvalContext);
     }
+
+    public void addImport(PsiElement element) {
+        PyType jetbrainType = typeEvalContext.getType((PyTypedElement) element);
+        PyTypeHintGenerationUtil.addImportsForTypeAnnotations(
+                Collections.singletonList(jetbrainType), typeEvalContext, element.getContainingFile());
+    }
 }
