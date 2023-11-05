@@ -1,30 +1,8 @@
 import com.intellij.psi.PsiElement;
-import com.jetbrains.python.psi.PyNamedParameter;
-import com.jetbrains.python.psi.PyTargetExpression;
+import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyTargetExpressionImpl;
 
 public class Until {
-    public static String getLevelBlanks(int level) {
-        StringBuilder stringBuilder = new StringBuilder();
-        for (int i = 0; i < 2 * level; i++) {
-            stringBuilder.append(" ");
-        }
-        return stringBuilder.toString();
-    }
-
-    public static String getInsertedString(String oldString, String insertBehindString, String needInsertString, int[] bufferIndex) {
-        if (bufferIndex[0] > oldString.length() - 1) {
-            return null;
-        }
-
-        int insertIndex = oldString.indexOf(insertBehindString, bufferIndex[0]);
-        if (insertIndex == -1) {
-            return null;
-        }
-        insertIndex += insertBehindString.length();
-        bufferIndex[0] = insertIndex + needInsertString.length();
-        return oldString.substring(0, insertIndex) + needInsertString + oldString.substring(insertIndex);
-    }
-
     public static void throwErrorWithPosition(PsiElement element, String message) throws Exception {
         int startOffset = element.getNode().getStartOffset();
         String text = element.getContainingFile().getText();
@@ -45,11 +23,19 @@ public class Until {
         PsiElement resolve = element.getReference().resolve();
         String result = null;
         if (resolve instanceof PyTargetExpression) {
-            result = ((PyTargetExpression)resolve).getAnnotationValue();
+            result = ((PyTargetExpression) resolve).getAnnotationValue();
         } else if (resolve instanceof PyNamedParameter) {
-            result = ((PyNamedParameter)resolve).getAnnotationValue();
+            result = ((PyNamedParameter) resolve).getAnnotationValue();
         }
         return result;
+    }
+
+    public static boolean notNeedAnnotation(PsiElement element) {
+        return (element.getParent() instanceof PyForPart)
+                || (element.getParent() instanceof PyTupleExpression)
+                || (element.getParent() instanceof PyWithItem)
+                || (element.getParent() instanceof PyComprehensionElement)
+                || ((PyTargetExpressionImpl) element).getReference().resolve() == element;
     }
 }
 

@@ -17,10 +17,7 @@ public class TypeHits extends PyInspection {
             public void visitPyElement(@NotNull PyElement element) {
                 if (element instanceof PyTargetExpression) {
                     if (((PyTargetExpression) element).getAnnotationValue() == null
-                            && !(element.getParent() instanceof PyForPart)
-                            && !(element.getParent() instanceof PyTupleExpression)
-                            && !(element.getParent() instanceof PyWithItem)
-                            && !(element.getParent() instanceof PyComprehensionElement)
+                            && !Until.notNeedAnnotation(element)
                             && ((PyTargetExpressionImpl) element).getReference().resolve() == element) {
                         holder.registerProblem(element, "lose type declare of variable " + element.getText(), typeFix);
                     }

@@ -49,22 +49,14 @@ public class TypeFix implements LocalQuickFix {
 
     public String applyFixElement(PsiElement psiElement) throws Exception {
         if (psiElement instanceof PyTargetExpression) {
-            if (!(((PyTargetExpression) psiElement).getAnnotationValue() == null
-                    && !(psiElement.getParent() instanceof PyForPart)
-                    && !(psiElement.getParent() instanceof PyTupleExpression)
-                    && !(psiElement.getParent() instanceof PyWithItem)
-                    && !(psiElement.getParent() instanceof PyComprehensionElement)
-                    && ((PyTargetExpressionImpl) psiElement).getReference().resolve() == psiElement)) {
-                return null;
-            }
             String annotation = typeInfer.getInferedAnnotation(((PyAssignmentStatement) psiElement.getParent()).getAssignedValue());
             PyTypeDeclarationStatement templateDeclaration = pyElementGenerator.createFromText(
                     LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
                     "a:" + annotation);
             psiElement.add(templateDeclaration.getAnnotation());
-//            refreshAssignment(psiElement);
             typeInfer.addImport(psiElement);
             return annotation;
+
         } else if (psiElement.getParent() instanceof PyFunction || psiElement instanceof PyNamedParameter) {
             boolean isFunction = psiElement.getParent() instanceof PyFunction;
             PyFunction function = isFunction ? (PyFunction) psiElement.getParent() : (PyFunction) psiElement.getParent().getParent();

@@ -55,7 +55,7 @@ public class TypeInfer {
             }
             inferedAnnotation = "set[" + getInferedAnnotation(elements[0]) + "]";
         } else if (elementType.equals(REFERENCE_EXPRESSION)) {
-            inferedAnnotation = inferReferenceAnnotation(element);
+            inferedAnnotation = getReferenceAnnotation(element);
         } else if (element instanceof PyCallExpression) {
             PsiElement resolve = ((PyCallExpression) element).getCallee().getReference().resolve();
             if (resolve instanceof PyClass) {
@@ -70,7 +70,7 @@ public class TypeInfer {
         } else if (element instanceof PyBinaryExpression pyBinaryExpression) {
             inferedAnnotation = getInferedAnnotation(pyBinaryExpression.getChildren()[0]);
         } else if (element instanceof PySubscriptionExpression pySubscriptionExpression) {
-            String temp = inferReferenceAnnotation(pySubscriptionExpression.getOperand());
+            String temp = getReferenceAnnotation(pySubscriptionExpression.getOperand());
             if (!temp.contains("[")) {
                 Until.throwErrorWithPosition(pySubscriptionExpression.getOperand().getReference().resolve(),
                         "no sub type");
@@ -86,16 +86,17 @@ public class TypeInfer {
         return inferedAnnotation;
     }
 
-    private String inferReferenceAnnotation(PsiElement element) throws Exception {
-        if (element.getReference().resolve().getParent() instanceof PyForPart) {
-            return typeEvalContext.getType((PyTypedElement) element).getName();
+    private String getReferenceAnnotation(PsiElement element) throws Exception {
+        PsiElement resolve = element.getReference().resolve();
+        if (Until.notNeedAnnotation(resolve)) {
+            return typeEvalContext.getType((PyTypedElement) resolve).getName();
         }
         String annotationValue = Until.getAnnotationValue(element);
         if (annotationValue == null) {
-            annotationValue = myQuickFix.applyFixElement(element.getReference().resolve());
+            annotationValue = myQuickFix.applyFixElement(resolve);
         }
         if (annotationValue == null) {
-            Until.throwErrorWithPosition(element.getReference().resolve(), "infer reference type fail");
+            Until.throwErrorWithPosition(resolve, "infer reference type fail");
         }
         return annotationValue;
     }
