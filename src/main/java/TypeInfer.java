@@ -1,6 +1,5 @@
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.tree.IElementType;
-import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.codeInsight.intentions.PyTypeHintGenerationUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.types.PyType;
@@ -11,106 +10,94 @@ import java.util.Collections;
 import static com.jetbrains.python.PyElementTypes.*;
 
 public class TypeInfer {
-    private TypeEvalContext typeEvalContext;
-    private TypeFix myQuickFix;
+    private final TypeEvalContext typeEvalContext;
+    private final TypeFix myQuickFix;
 
-    public TypeInfer(TypeEvalContext typeEvalContext, TypeFix myQuickFix){
+    public TypeInfer(TypeEvalContext typeEvalContext, TypeFix myQuickFix) {
         this.typeEvalContext = typeEvalContext;
         this.myQuickFix = myQuickFix;
     }
 
-    public boolean inferAnnotation(PsiElement element, StringBuilder stringBuilder) throws Exception {
+    public String getInferedAnnotation(PsiElement element) throws Exception {
+        String inferedAnnotation = null;
         if (element == null) {
             throw new Exception("PsiElement is null");
         }
         IElementType elementType = element.getNode().getElementType();
         if (elementType.equals(INTEGER_LITERAL_EXPRESSION)) {
-            stringBuilder.append("int");
+            inferedAnnotation = "int";
         } else if (elementType.equals(FLOAT_LITERAL_EXPRESSION)) {
-            stringBuilder.append("float");
+            inferedAnnotation = "float";
         } else if (elementType.equals(IMAGINARY_LITERAL_EXPRESSION)) {
-            stringBuilder.append("imaginary");
+            inferedAnnotation = "imaginary";
         } else if (elementType.equals(STRING_LITERAL_EXPRESSION)) {
-            stringBuilder.append("str");
+            inferedAnnotation = "str";
         } else if (elementType.equals(NONE_LITERAL_EXPRESSION)) {
-            stringBuilder.append("None");
+            inferedAnnotation = "None";
         } else if (elementType.equals(BOOL_LITERAL_EXPRESSION)) {
-            stringBuilder.append("bool");
+            inferedAnnotation = "bool";
         } else if (element instanceof PyDictLiteralExpression) {
             PyKeyValueExpression[] elements = ((PyDictLiteralExpression) element).getElements();
             if (elements.length == 0) {
-                stringBuilder.append("dict[None]");
-                return true;
+                return "dict[None]";
             }
-            stringBuilder.append("dict[");
-            inferAnnotation(elements[0].getKey(), stringBuilder);
-            stringBuilder.append(":");
-            inferAnnotation(elements[0].getValue(), stringBuilder);
-            stringBuilder.append("]");
+            inferedAnnotation = "dict[" + getInferedAnnotation(elements[0].getKey()) + ":" + getInferedAnnotation(elements[0].getValue()) + "]";
         } else if (element instanceof PyListLiteralExpression) {
             PyExpression[] elements = ((PyListLiteralExpression) element).getElements();
             if (elements.length == 0) {
-                stringBuilder.append("list[None]");
-                return true;
+                return "list[None]";
             }
-            stringBuilder.append("list[");
-            inferAnnotation(elements[0], stringBuilder);
-            stringBuilder.append("]");
+            inferedAnnotation = "list[" + getInferedAnnotation(elements[0]) + "]";
         } else if (element instanceof PySetLiteralExpression) {
             PyExpression[] elements = ((PySetLiteralExpression) element).getElements();
             if (elements.length == 0) {
-                stringBuilder.append("set[None]");
-                return true;
+                return "set[None]";
             }
-            stringBuilder.append("set[");
-            inferAnnotation(elements[0], stringBuilder);
-            stringBuilder.append("]");
+            inferedAnnotation = "set[" + getInferedAnnotation(elements[0]) + "]";
         } else if (elementType.equals(REFERENCE_EXPRESSION)) {
-            inferReferenceAnnotation(element, stringBuilder);
+            inferedAnnotation = inferReferenceAnnotation(element);
         } else if (element instanceof PyCallExpression) {
             PsiElement resolve = ((PyCallExpression) element).getCallee().getReference().resolve();
             if (resolve instanceof PyClass) {
-                stringBuilder.append(((PyClass) resolve).getName());
+                inferedAnnotation = ((PyClass) resolve).getName();
             } else if (resolve instanceof PyFunction) {
                 String anntationStr = ((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName();
-                if (anntationStr.equals("None")) {
+                if ("None".equals(anntationStr)) {
                     anntationStr = typeEvalContext.getType((PyTypedElement) element).getName();
                 }
-                stringBuilder.append(anntationStr);
+                inferedAnnotation = anntationStr;
             }
         } else if (element instanceof PyBinaryExpression pyBinaryExpression) {
-            inferAnnotation(pyBinaryExpression.getChildren()[0], stringBuilder);
+            inferedAnnotation = getInferedAnnotation(pyBinaryExpression.getChildren()[0]);
         } else if (element instanceof PySubscriptionExpression pySubscriptionExpression) {
-            StringBuilder temp = new StringBuilder();
-            inferReferenceAnnotation(pySubscriptionExpression.getOperand(), temp);
-            if (!temp.toString().contains("[")) {
+            String temp = inferReferenceAnnotation(pySubscriptionExpression.getOperand());
+            if (!temp.contains("[")) {
                 Until.throwErrorWithPosition(pySubscriptionExpression.getOperand().getReference().resolve(),
                         "no sub type");
             }
-            stringBuilder.append(temp.substring(temp.indexOf("[") + 1, temp.lastIndexOf("]")));
+            inferedAnnotation = temp.substring(temp.indexOf("[") + 1, temp.lastIndexOf("]"));
         } else if (element instanceof PyConditionalExpression pyConditionalExpression) {
-            inferAnnotation(pyConditionalExpression.getTruePart(), stringBuilder);
-        }
-
-        else {
+            inferedAnnotation = getInferedAnnotation(pyConditionalExpression.getTruePart());
+        } else if (element instanceof PyPrefixExpression) {
+            inferedAnnotation = "bool";
+        } else {
             Until.throwErrorWithPosition(element, "unexcepted psiElementType");
         }
-        return true;
+        return inferedAnnotation;
     }
 
-    private boolean inferReferenceAnnotation(PsiElement element, StringBuilder stringBuilder) throws Exception {
+    private String inferReferenceAnnotation(PsiElement element) throws Exception {
         if (element.getReference().resolve().getParent() instanceof PyForPart) {
-            stringBuilder.append(typeEvalContext.getType((PyTypedElement) element).getName());
-            return true;
+            return typeEvalContext.getType((PyTypedElement) element).getName();
         }
-        if (Until.getAnnotationValue(element) == null) {
-            myQuickFix.applyFixElement(element.getReference().resolve());
+        String annotationValue = Until.getAnnotationValue(element);
+        if (annotationValue == null) {
+            annotationValue = myQuickFix.applyFixElement(element.getReference().resolve());
         }
-        if (Until.getAnnotationValue(element) == null) {
+        if (annotationValue == null) {
             Until.throwErrorWithPosition(element.getReference().resolve(), "infer reference type fail");
         }
-        stringBuilder.append(Until.getAnnotationValue(element));
-        return true;
+        return annotationValue;
     }
 
     public PyType getFunctionReturnType(PyFunction function) {
