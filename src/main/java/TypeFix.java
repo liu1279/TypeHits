@@ -7,7 +7,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.jetbrains.python.psi.*;
-import com.jetbrains.python.psi.impl.PyTargetExpressionImpl;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
@@ -53,6 +52,10 @@ public class TypeFix implements LocalQuickFix {
             PyTypeDeclarationStatement templateDeclaration = pyElementGenerator.createFromText(
                     LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
                     "a:" + annotation);
+            if (templateDeclaration.getAnnotation() == null) {
+                Until.throwErrorWithPosition(psiElement, "generate statement fail from psiElement: " + psiElement.getText());
+                return null;
+            }
             psiElement.add(templateDeclaration.getAnnotation());
             typeInfer.addImport(psiElement);
             return annotation;
@@ -63,24 +66,36 @@ public class TypeFix implements LocalQuickFix {
             PyParameter[] parameters = function.getParameterList().getParameters();
             PsiReference psiReference = ReferencesSearch.search(function).findFirst();
             String resultAnnotation = null;
-            if (psiReference != null) {
-                PyCallExpression pyCallExpression = (PyCallExpression) (psiReference.getElement().getParent());
-                PyExpression[] referenceArguments = pyCallExpression.getArgumentList().getArguments();
-                PyExpression[] orderedArguments = getOrderedReferenceArguments(parameters, referenceArguments);
-                for (int i = 0; i < orderedArguments.length; i++) {
-                    String annotation = typeInfer.getInferedAnnotation(orderedArguments[i]);
-                    if (!isFunction && Objects.equals(((PyNamedParameter) psiElement).getName(), orderedArguments[i].getName())) {
-                        resultAnnotation = annotation;
+            if (psiReference == null) {
+                Until.throwErrorWithPosition(function, "there is no reference of fucntion: " + function.getName());
+                return null;
+            }
+
+            PyCallExpression pyCallExpression = (PyCallExpression) (psiReference.getElement().getParent());
+            PyArgumentList argumentList = pyCallExpression.getArgumentList();
+            if (argumentList == null) {
+                Until.throwErrorWithPosition(function, "there is no PyArgumentList of pyCallExpression: " + pyCallExpression.getName());
+                return null;
+            }
+            PyExpression[] orderedArguments = getOrderedReferenceArguments(parameters, argumentList.getArguments());
+            for (int i = 0; i < orderedArguments.length; i++) {
+                String annotation = typeInfer.getInferedAnnotation(orderedArguments[i]);
+                if (!isFunction && Objects.equals(((PyNamedParameter) psiElement).getName(), orderedArguments[i].getName())) {
+                    resultAnnotation = annotation;
+                }
+                if (((PyNamedParameter) parameters[i]).getAnnotation() == null) {
+                    PyTypeDeclarationStatement templateDeclaration = pyElementGenerator.createFromText(
+                            LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
+                            "a:" + annotation);
+                    if (templateDeclaration.getAnnotation() == null) {
+                        Until.throwErrorWithPosition(psiElement, "generate statement fail from psiElement: " + psiElement.getText());
+                        return null;
                     }
-                    if (((PyNamedParameter) parameters[i]).getAnnotation() == null) {
-                        PyTypeDeclarationStatement templateDeclaration = pyElementGenerator.createFromText(
-                                LanguageLevel.forElement(psiElement), PyTypeDeclarationStatement.class,
-                                "a:" + annotation);
-                        parameters[i].add(templateDeclaration.getAnnotation());
-                        typeInfer.addImport(parameters[i]);
-                    }
+                    parameters[i].add(templateDeclaration.getAnnotation());
+                    typeInfer.addImport(parameters[i]);
                 }
             }
+
             if (function.getAnnotation() == null) {
                 PyType returnStatementType = typeInfer.getFunctionReturnType(function);
                 String returnTypeName = returnStatementType == null ? "None" : returnStatementType.getName();
@@ -90,6 +105,10 @@ public class TypeFix implements LocalQuickFix {
                 PyFunction templateFunction = pyElementGenerator.createFromText(
                         LanguageLevel.forElement(psiElement), PyFunction.class,
                         "def a()->" + returnTypeName + ":\n	pass");
+                if (templateFunction.getAnnotation() == null) {
+                    Until.throwErrorWithPosition(psiElement, "generate function fail from psiElement: " + psiElement.getText());
+                    return null;
+                }
                 function.addAfter(templateFunction.getAnnotation(), function.getParameterList());
             }
             return resultAnnotation;

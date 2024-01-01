@@ -4,6 +4,8 @@ import com.jetbrains.python.codeInsight.intentions.PyTypeHintGenerationUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 
@@ -57,23 +59,17 @@ public class TypeInfer {
         } else if (elementType.equals(REFERENCE_EXPRESSION)) {
             inferedAnnotation = getReferenceAnnotation(element);
         } else if (element instanceof PyCallExpression) {
-            PsiElement resolve = ((PyCallExpression) element).getCallee().getReference().resolve();
-            if (resolve instanceof PyClass) {
-                inferedAnnotation = ((PyClass) resolve).getName();
-            } else if (resolve instanceof PyFunction) {
-                String anntationStr = ((PyFunction) resolve).getReturnStatementType(typeEvalContext).getName();
-                if ("None".equals(anntationStr)) {
-                    anntationStr = typeEvalContext.getType((PyTypedElement) element).getName();
-                }
-                inferedAnnotation = anntationStr;
-            }
+            inferedAnnotation = getCallAnnotation(element);
         } else if (element instanceof PyBinaryExpression pyBinaryExpression) {
-            inferedAnnotation = getInferedAnnotation(pyBinaryExpression.getChildren()[0]);
+            if (Until.isCalculateType(((PyBinaryExpression) element).getOperator())) {
+                inferedAnnotation = getInferedAnnotation(pyBinaryExpression.getChildren()[0]);
+            } else {
+                inferedAnnotation = "bool";
+            }
         } else if (element instanceof PySubscriptionExpression pySubscriptionExpression) {
             String temp = getReferenceAnnotation(pySubscriptionExpression.getOperand());
             if (!temp.contains("[")) {
-                Until.throwErrorWithPosition(pySubscriptionExpression.getOperand().getReference().resolve(),
-                        "no sub type");
+                Until.throwErrorWithPosition(Until.getResolve(pySubscriptionExpression.getOperand()), "no sub type");
             }
             inferedAnnotation = temp.substring(temp.indexOf("[") + 1, temp.lastIndexOf("]"));
         } else if (element instanceof PyConditionalExpression pyConditionalExpression) {
@@ -81,17 +77,58 @@ public class TypeInfer {
         } else if (element instanceof PyPrefixExpression) {
             inferedAnnotation = "bool";
         } else {
-            Until.throwErrorWithPosition(element, "unexcepted psiElementType");
+            Until.throwErrorWithPosition(element, "unexcepted psiElementType: " + elementType);
         }
         return inferedAnnotation;
     }
 
-    private String getReferenceAnnotation(PsiElement element) throws Exception {
-        PsiElement resolve = element.getReference().resolve();
-        if (Until.notNeedAnnotation(resolve)) {
-            return typeEvalContext.getType((PyTypedElement) resolve).getName();
+    @Nullable
+    private String getCallAnnotation(PsiElement element) throws Exception {
+        String inferedAnnotation = null;
+        PyExpression callee = ((PyCallExpression) element).getCallee();
+        if (callee == null) {
+            Until.throwErrorWithPosition(element, "no callee of PyCallExpression: " + ((PyCallExpression) element).getName());
+            return null;
         }
-        String annotationValue = Until.getAnnotationValue(element);
+        PsiElement resolve = Until.getResolve(callee);
+        if (resolve instanceof PyClass) {
+            inferedAnnotation = ((PyClass) resolve).getName();
+        } else if (resolve instanceof PyFunction) {
+            String anntationStr = null;
+            PyType returnStatementType = ((PyFunction) resolve).getReturnStatementType(typeEvalContext);
+            if (returnStatementType != null) {
+                anntationStr = returnStatementType.getName();
+            }
+            if ("None".equals(anntationStr)) {
+                PyType type = typeEvalContext.getType((PyTypedElement) element);
+                if (type != null) {
+                    anntationStr = type.getName();
+                }
+            }
+            inferedAnnotation = anntationStr;
+        }
+        return inferedAnnotation;
+    }
+
+    @NotNull
+    private String getReferenceAnnotation(PsiElement element) throws Exception {
+        if (element instanceof PyCallExpression pyCallExpression) {
+            String callAnnotation = getCallAnnotation(pyCallExpression);
+            if (callAnnotation == null) {
+                Until.throwErrorWithPosition(pyCallExpression,
+                        " there is no annotation of pyCallExpression:" + pyCallExpression.getName());
+            }
+            return callAnnotation;
+        }
+        PsiElement resolve = Until.getResolve(element);
+        if (Until.notNeedAnnotation(resolve)) {
+            PyType type = typeEvalContext.getType((PyTypedElement) resolve);
+            if (type == null) {
+                Until.throwErrorWithPosition(element, " there is no type of resolve:" + resolve.getText());
+            }
+            return type.getName();
+        }
+        String annotationValue = getAnnotation(resolve);
         if (annotationValue == null) {
             annotationValue = myQuickFix.applyFixElement(resolve);
         }
@@ -99,6 +136,13 @@ public class TypeInfer {
             Until.throwErrorWithPosition(resolve, "infer reference type fail");
         }
         return annotationValue;
+    }
+
+    private String getAnnotation(PsiElement element) {
+        if (element instanceof PyAnnotationOwner pyAnnotationOwner) {
+            return pyAnnotationOwner.getAnnotationValue();
+        }
+        return null;
     }
 
     public PyType getFunctionReturnType(PyFunction function) {
