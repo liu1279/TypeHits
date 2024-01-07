@@ -1,22 +1,31 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
-    <id>com.TypeHits</id>
+    <id>com.TypeInfer</id>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
-    <name>TypeHits</name>
+    <name>TypeInfer</name>
 
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor email="support@yourcompany1.com" url="https://www.yourcompany.com">YourCompany1</vendor>
+    <vendor email="460302767@qq.com" url="https://www.ljpcompany.com">LiuJianPing</vendor>
 
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
-    <description><![CDATA[
-    Enter short description for your plugin1 here.<br>
-    <em>most HTML tags1 may be used</em>
-  ]]></description>
+    <description>
+        <![CDATA[
+        A tool for fixing type declare.<br>
+        <em>inspect of no type declare</em>
+        <em>infer type as far as possible</em>
+        ]]>
+    </description>
+
+    <change-notes>
+        <![CDATA[
+         1.0 first publish<br>
+        ]]>
+    </change-notes>
 
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
