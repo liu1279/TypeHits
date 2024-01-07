@@ -8,7 +8,7 @@ import com.jetbrains.python.psi.impl.PyTargetExpressionImpl;
 import org.jetbrains.annotations.NotNull;
 
 public class Until {
-    public static TokenSet calculateTokenSet = TokenSet.create( PyTokenTypes.PLUS,
+    public static TokenSet calculateTokenSet = TokenSet.create(PyTokenTypes.PLUS,
             PyTokenTypes.MINUS, PyTokenTypes.MULT, PyTokenTypes.AT, PyTokenTypes.FLOORDIV, PyTokenTypes.DIV,
             PyTokenTypes.PERC, PyTokenTypes.EXP);
 
@@ -34,7 +34,8 @@ public class Until {
                 || (element.getParent() instanceof PyTupleExpression)
                 || (element.getParent() instanceof PyWithItem)
                 || (element.getParent() instanceof PyComprehensionElement)
-                || ((PyTargetExpressionImpl) element).getReference().resolve() != element;
+                || ((PyTargetExpressionImpl) element).getReference().resolve() != element
+                || (element.getParent() instanceof PyStarExpression);
     }
 
     @NotNull
