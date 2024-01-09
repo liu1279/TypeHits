@@ -16,13 +16,14 @@
     <description>
         <![CDATA[
         A tool for fixing type declare.<br>
-        <em>inspect of no type declare</em>
-        <em>infer type as far as possible</em>
+        <em>1. inspect of no type declare<br></em>
+        <em>2. infer type as far as possible<br></em>
         ]]>
     </description>
 
     <change-notes>
         <![CDATA[
+         1.1 support version of 233.*<br>
          1.0 first publish<br>
         ]]>
     </change-notes>

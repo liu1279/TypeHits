@@ -3,6 +3,7 @@ import com.intellij.lang.ASTNode;
 import com.intellij.psi.PsiElementVisitor;
 import com.jetbrains.python.inspections.PyInspection;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyTargetExpressionImpl;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -16,7 +17,9 @@ public class TypeHits extends PyInspection {
             @Override
             public void visitPyElement(@NotNull PyElement element) {
                 if (element instanceof PyTargetExpression) {
-                    if (((PyTargetExpression) element).getAnnotationValue() == null && !Until.notNeedAnnotation(element)) {
+                    if (((PyTargetExpression) element).getAnnotationValue() == null
+                            && !Until.notNeedAnnotation(element)
+                            && ((PyTargetExpression) element).getReference().resolve() == element) {
                         holder.registerProblem(element, "lose type declare of variable " + element.getText(), typeFix);
                     }
                 } else if (element instanceof PyFunction pyFunction) {

@@ -34,7 +34,6 @@ public class Until {
                 || (element.getParent() instanceof PyTupleExpression)
                 || (element.getParent() instanceof PyWithItem)
                 || (element.getParent() instanceof PyComprehensionElement)
-                || ((PyTargetExpressionImpl) element).getReference().resolve() != element
                 || (element.getParent() instanceof PyStarExpression);
     }
 
